@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -20,8 +21,8 @@ class DetailScreen extends StatefulWidget {
   final String description;
   final DateTime createdAt;
   final String fullName;
-  final double latitude;
-  final double longitude;
+  final double? latitude;
+  final double? longitude;
   final String category;
   final String heroTag;
 
@@ -31,6 +32,14 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   Future<void> openMap() async {
+    // Validasi latitude dan longitude
+    if (widget.latitude == null || widget.longitude == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Lokasi tidak tersedia')));
+      return;
+    }
+
     final uri = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=${widget.latitude},${widget.longitude}',
     );
@@ -54,15 +63,39 @@ class _DetailScreenState extends State<DetailScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Hero(
-            tag: widget.heroTag,
-            child: Image.memory(
-              base64Decode(widget.imageBase64),
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: 250,
-            ),
+          Stack(
+            children: [
+              Hero(
+                tag: widget.heroTag,
+                child: Image.memory(
+                  base64Decode(widget.imageBase64),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: 250,
+                ),
+              ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: IconButton(
+                  icon: const Icon(Icons.fullscreen, color: Colors.white),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FullScreenImageScreen(
+                          imageBase64: widget.imageBase64,
+                        ),
+                      ),
+                    );
+                  },
+                  tooltip: 'Lihat gambar penuh',
+                  style: IconButton.styleFrom(backgroundColor: Colors.black45),
+                ),
+              ),
+            ],
           ),
+
           Expanded(
             child: SingleChildScrollView(
               child: Padding(
@@ -166,7 +199,11 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                         // Kanan: Icon map
                         IconButton(
-                          onPressed: openMap,
+                          onPressed:
+                              widget.latitude != null &&
+                                  widget.longitude != null
+                              ? openMap
+                              : null,
                           icon: const Icon(
                             Icons.map,
                             size: 38,
@@ -192,6 +229,39 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class FullScreenImageScreen extends StatelessWidget {
+  const FullScreenImageScreen({super.key, required this.imageBase64});
+  final String imageBase64;
+
+  @override
+  Widget build(BuildContext context) {
+    Uint8List imageBytes = base64Decode(imageBase64);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('Gambar Penuh'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1.0,
+            maxScale: 4.0,
+            child: Image.memory(imageBytes, fit: BoxFit.contain),
+          ),
+        ),
       ),
     );
   }

@@ -1,0 +1,42 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+
+class FullScreenImageScreen extends StatefulWidget {
+  final String imageBase64;
+
+  const FullScreenImageScreen({super.key, required this.imageBase64});
+
+  @override
+  State<FullScreenImageScreen> createState() => _FullScreenImageScreenState();
+}
+
+class _FullScreenImageScreenState extends State<FullScreenImageScreen> {
+  @override
+  Widget build(BuildContext context) {
+    Uint8List imageBytes = base64Decode(widget.imageBase64);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('Gambar Penuh'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1.0,
+            maxScale: 4.0,
+            child: Image.memory(imageBytes, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    );
+  }
+}
