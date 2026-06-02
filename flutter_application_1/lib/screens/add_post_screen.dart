@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:shimmer/shimmer.dart';
 
 class AddPostScreen extends StatefulWidget {
   const AddPostScreen({super.key});
@@ -26,6 +28,187 @@ class _AddPostScreenState extends State<AddPostScreen> {
   bool _isUploading = false;
   double? _latitude;
   double? _longitude;
+
+  String? _aiCategory;
+  String? _aiDescription;
+  bool _isGenerating = false;
+  final String _apiKey =
+      'AQ.Ab8RN6J3nrRGbAcLP9GENPt3AX27Aeu0Ml6mBxR_dgb_Lmp9Kw';
+
+  List<String> categories = [
+    'Jalan Rusak',
+    'Marka Pudar',
+    'Lampu Mati',
+    'Trotoar Rusak',
+    'Rambu Rusak',
+    'Jembatan Rusak',
+    'Sampah Menumpuk',
+    'Saluran Tersumbat',
+    'Sungai Tercemar',
+    'Sampah Sungai',
+    'Pohon Tumbang',
+    'Taman Rusak',
+    'Fasilitas Rusak',
+    'Pipa Bocor',
+    'Vandalisme',
+    'Banjir',
+    'Lainnya',
+  ];
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _showCategorySelection() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return ListView(
+          shrinkWrap: true,
+          children: categories.map((category) {
+            return ListTile(
+              title: Text(category),
+              onTap: () {
+                setState(() {
+                  _aiCategory = category;
+                });
+                Navigator.pop(context);
+              },
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Future<void> _generateDescriptionWithAI() async {
+    if (_imageBytes == null) return;
+
+    setState(() => _isGenerating = true);
+    try {
+      final base64Image = _base64Image ?? base64Encode(_imageBytes!);
+
+      debugPrint("Image size: ${_imageBytes!.length} bytes");
+
+      // Gunakan model yang tersedia
+      final url =
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$_apiKey';
+
+      final body = jsonEncode({
+        "contents": [
+          {
+            "parts": [
+              {
+                "inlineData": {"mimeType": "image/jpeg", "data": base64Image},
+              },
+              {
+                "text":
+                    "Analisis gambar ini dan identifikasi kerusakan fasilitas umum. "
+                    "Dari kategori berikut: Jalan Rusak, Marka Pudar, Lampu Mati, Trotoar Rusak, "
+                    "Rambu Rusak, Jembatan Rusak, Sampah Menumpuk, Saluran Tersumbat, Sungai Tercemar, "
+                    "Sampah Sungai, Pohon Tumbang, Taman Rusak, Fasilitas Rusak, Pipa Bocor, "
+                    "Vandalisme, Banjir, dan Lainnya.\n\n"
+                    "Pilih 1 kategori yang paling dominan dan buat deskripsi singkat (maksimal 100 kata) "
+                    "untuk laporan perbaikan. Fokus pada kerusakan yang terlihat.\n\n"
+                    "Format output:\n"
+                    "Kategori: [nama kategori]\n"
+                    "Deskripsi: [deskripsi singkat]",
+              },
+            ],
+          },
+        ],
+      });
+
+      debugPrint("Request URL: $url");
+
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/json'},
+            body: body,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      debugPrint("Response status: ${response.statusCode}");
+      debugPrint("Response body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(response.body);
+
+        if (jsonResponse['candidates'] == null ||
+            jsonResponse['candidates'].isEmpty) {
+          throw Exception('Tidak ada respons dari AI');
+        }
+
+        final text =
+            jsonResponse['candidates'][0]['content']['parts'][0]['text'];
+
+        debugPrint("AI TEXT: $text");
+
+        if (text != null && text.isNotEmpty) {
+          final lines = text.trim().split('\n');
+          String? category;
+          String? description;
+
+          for (var line in lines) {
+            final lower = line.toLowerCase();
+            if (lower.startsWith('kategori:')) {
+              category = line.substring(9).trim();
+            } else if (lower.startsWith('deskripsi:')) {
+              description = line.substring(10).trim();
+            }
+          }
+
+          description ??= text.trim();
+
+          if (mounted) {
+            setState(() {
+              _aiCategory = category ?? 'Lainnya';
+              _aiDescription = description;
+              _descriptionController.text = _aiDescription ?? '';
+            });
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Deskripsi AI berhasil dibuat!')),
+            );
+          }
+        }
+      } else if (response.statusCode == 404) {
+        throw Exception(
+          'Model tidak ditemukan. Gunakan model: gemini-2.0-flash atau gemini-pro-vision',
+        );
+      } else if (response.statusCode == 400) {
+        throw Exception(
+          'Bad request: ${jsonDecode(response.body)['error']['message']}',
+        );
+      } else if (response.statusCode == 401) {
+        throw Exception(
+          'API Key tidak valid. Dapatkan dari https://aistudio.google.com/apikey',
+        );
+      } else if (response.statusCode == 429) {
+        throw Exception('Limit API terlampaui. Tunggu beberapa menit.');
+      } else {
+        throw Exception('Error ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Failed to generate AI description: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
+    }
+  }
 
   void _showImageSourceDialog() {
     showDialog(
@@ -71,7 +254,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
           _descriptionController.clear();
         });
         await _compressAndEncodeImage();
-        //await _generateDescriptionWithAI();
+        await _generateDescriptionWithAI();
       }
     } catch (e) {
       if (mounted) {
@@ -134,37 +317,64 @@ class _AddPostScreenState extends State<AddPostScreen> {
   }
 
   Future<void> _submitPost() async {
-    if (_base64Image == null || _descriptionController.text.isEmpty) return;
+    // Validasi input
+    if (_base64Image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an image first.')),
+      );
+      return;
+    }
+
+    if (_descriptionController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add a description.')),
+      );
+      return;
+    }
+
+    if (_aiCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category.')),
+      );
+      return;
+    }
+
     setState(() => _isUploading = true);
     final now = DateTime.now().toIso8601String();
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     if (uid == null) {
       setState(() => _isUploading = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('User not found.')));
+      ).showSnackBar(const SnackBar(content: Text('User not found.')));
       return;
     }
+
     try {
       await _getLocation();
-      // Ambil nama lengkap dari koleksi users
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
       final fullName = userDoc.data()?['fullName'] ?? 'Anonymous';
+
       await FirebaseFirestore.instance.collection('posts').add({
         'image': _base64Image,
         'description': _descriptionController.text,
-        'category': 'Tidak diketahui',
+        'category': _aiCategory ?? 'Tidak diketahui',
         'createdAt': now,
         'latitude': _latitude,
         'longitude': _longitude,
         'fullName': fullName,
-        'userId': uid, // optional: jika ingin simpan UID juga,
+        'userId': uid,
       });
+
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Post uploaded successfully!')),
+      );
       Navigator.pop(context);
     } catch (e) {
       debugPrint('Upload failed: $e');
@@ -172,7 +382,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
       setState(() => _isUploading = false);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Failed to upload the post.')));
+      ).showSnackBar(SnackBar(content: Text('Failed to upload the post: $e')));
     }
   }
 
@@ -184,6 +394,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // Image Picker
             GestureDetector(
               onTap: _showImageSourceDialog,
               child: Container(
@@ -191,6 +402,10 @@ class _AddPostScreenState extends State<AddPostScreen> {
                 decoration: BoxDecoration(
                   color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _imageBytes != null ? Colors.green : Colors.grey,
+                    width: 2,
+                  ),
                 ),
                 child: _imageBytes != null
                     ? ClipRRect(
@@ -213,38 +428,126 @@ class _AddPostScreenState extends State<AddPostScreen> {
             ),
 
             const SizedBox(height: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                TextField(
-                  controller: _descriptionController,
-                  textCapitalization: TextCapitalization.sentences,
-                  maxLines: 6,
-                  decoration: const InputDecoration(
-                    hintText: 'Add a brief description...',
-                    border: OutlineInputBorder(),
-                  ),
+
+            // Loading Shimmer
+            if (_isGenerating)
+              Shimmer.fromColors(
+                baseColor: Colors.grey[300]!,
+                highlightColor: Colors.grey[100]!,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 20,
+                      width: 100,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      margin: const EdgeInsets.only(bottom: 12),
+                    ),
+                    Container(
+                      height: 80,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+
+            // Category & Refresh Button
+            if (_aiCategory != null && !_isGenerating)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: _showCategorySelection,
+                        child: Chip(
+                          label: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _aiCategory!,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.edit, size: 16),
+                            ],
+                          ),
+                          backgroundColor: Colors.blue[100],
+                        ),
+                      ),
+                    ),
+                    if (_imageBytes != null)
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        tooltip: 'Generate another description',
+                        onPressed: _generateDescriptionWithAI,
+                      ),
+                  ],
+                ),
+              ),
 
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _isUploading ? null : _submitPost,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 16),
-                backgroundColor: Colors.green,
+
+            // Description TextField
+            TextField(
+              controller: _descriptionController,
+              textCapitalization: TextCapitalization.sentences,
+              maxLines: 6,
+              decoration: InputDecoration(
+                hintText: 'Add a brief description...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
               ),
-              child: _isUploading
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Submit Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isUploading ? null : _submitPost,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.green,
+                  disabledBackgroundColor: Colors.grey[400],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: _isUploading
+                    ? const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Text(
+                        'Post',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    )
-                  : const Text('Post', style: TextStyle(color: Colors.white)),
+              ),
             ),
           ],
         ),
