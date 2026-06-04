@@ -47,6 +47,9 @@ dependencies:
   http: ^1.6.0
   shimmer: ^3.0.0
   path_provider: ^2.0.16
+  image_gallery_saver: ^2.0.3
+  permission_handler: ^11.3.1
+  universal_html: ^2.2.4
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../utils/image_saver.dart';
+
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     super.key,
@@ -234,34 +236,125 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 }
 
-class FullScreenImageScreen extends StatelessWidget {
+class FullScreenImageScreen extends StatefulWidget {
   const FullScreenImageScreen({super.key, required this.imageBase64});
   final String imageBase64;
 
   @override
+  State<FullScreenImageScreen> createState() => _FullScreenImageScreenState();
+}
+
+class _FullScreenImageScreenState extends State<FullScreenImageScreen> {
+  bool _isSaving = false;
+
+  Uint8List _decodeBase64(String src) {
+    final commaIndex = src.indexOf(',');
+    final base64Data = commaIndex != -1 ? src.substring(commaIndex + 1) : src;
+    return base64Decode(base64Data);
+  }
+
+  Future<void> _saveImage() async {
+    if (_isSaving) return;
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final bytes = _decodeBase64(widget.imageBase64);
+      final fileName = 'fasum_image_${DateTime.now().millisecondsSinceEpoch}.png';
+      final savedPath = await saveImageToDevice(bytes, fileName);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gambar berhasil disimpan: $savedPath'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyimpan gambar: $error'),
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    Uint8List imageBytes = base64Decode(imageBase64);
+    final imageBytes = _decodeBase64(widget.imageBase64);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.black,
         elevation: 0,
         title: const Text('Gambar Penuh'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.pop(context),
         ),
-      ),
-      body: GestureDetector(
-        onTap: () => Navigator.pop(context),
-        child: Center(
-          child: InteractiveViewer(
-            minScale: 1.0,
-            maxScale: 4.0,
-            child: Image.memory(imageBytes, fit: BoxFit.contain),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: _isSaving
+                ? const Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.download),
+                    tooltip: 'Unduh gambar',
+                    onPressed: _saveImage,
+                  ),
           ),
-        ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Center(
+              child: InteractiveViewer(
+                minScale: 1.0,
+                maxScale: 4.0,
+                child: Image.memory(imageBytes, fit: BoxFit.contain),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              heroTag: 'download_fullscreen',
+              onPressed: _isSaving ? null : _saveImage,
+              backgroundColor: Colors.blueAccent,
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.download),
+              label: Text(_isSaving ? 'Menyimpan...' : 'Download'),
+            ),
+          ),
+        ],
       ),
     );
   }
