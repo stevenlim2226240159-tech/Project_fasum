@@ -33,7 +33,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
   String? _aiDescription;
   bool _isGenerating = false;
   final String _apiKey =
-      'AQ.Ab8RN6J3nrRGbAcLP9GENPt3AX27Aeu0Ml6mBxR_dgb_Lmp9Kw';
+      'AQ.Ab8RN6Kcs2HeC18p0pGwJIebJC-g7Qn0aZVAeviGEsmpsZrjZA';
 
   List<String> categories = [
     'Jalan Rusak',
